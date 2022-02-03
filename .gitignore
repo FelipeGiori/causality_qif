@@ -1,0 +1,10 @@
+__pycache__
+mestrado/data/*
+*.parquet
+.vscode/
+.ipynb_checkpoints/
+mestrado/.ipynb_checkpoints/*
+notebooks/catboost_info/*
+notebooks/*.parquet
+causal_inference/
+.idea/
