@@ -297,7 +297,7 @@ def load_ce_pairs(a_type=None, b_type=None, sup=True):
 
 
 def load_ce_pairs_info(sup=True):
-    ce_paths = ['ce_pairs/']
+    ce_paths = ['ce_pairs_train/']
     if sup == True:
         ce_paths.append("ce_pairs_sup/")
 
