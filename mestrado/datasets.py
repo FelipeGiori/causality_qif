@@ -1,12 +1,32 @@
+import os
+import pickle
 import numpy as np
 import pandas as pd
+
+from glob import glob
 from pathlib import Path
 
 DATA_PATH = "/home/felipegiori/Mestrado/research/src/mestrado/data/"
 
+
+databases_ce_pairs = {
+    'breast_tumor':[('tumor_size', 'inv_nodes'), ('tumor_size', 'deg_malig')],
+    'cholesterol':[('chol', 'trestbps'), ('chol', 'fbs')],
+    'pbc':[('stage', 'albumin'), ('stage', 'protime'), ('stage', 'bili')],
+    'pollution':[('mort', 'ovr65')],
+    'autompg':[('horsepower', 'mpg'), ('weight', 'mpg')],
+    'cpu':[('myct', 'erp'), ('mmax', 'erp'), ('cach', 'erp')],
+    'breastw':[('target', 'Clump_Thickness'), ('target', 'Cell_Shape_Uniformity'), ('target', 'Cell_Size_Uniformity')],
+    'balance_scale':[('left_weight', 'target'), ('right_weight', 'target'), ('left_distance', 'target'), ('right_distance', 'target')],
+    'servo':[('pgain', 'class'), ('vgain', 'class')],
+    'sensory':[('trellis', 'score')],
+    'pwlinear':[(f'a{n}', 'binaryClass') for n in range(1, 11)],
+    'wisconsin':[('diagnosis', 'perimeter_mean'), ('diagnosis', 'smoothness_mean'), ('diagnosis', 'concavity_mean')]
+}
+
 class CEPairs:
     """
-        Class to enclapsulate each dataset information. The field are:
+        Class to enclapsulate each dataset information. The fields are:
         - name: name of the data file
         - a_type: type of the A variable. Possible types are: Numerical, Categorical or Binary
         - b_type: type of the B variable. Possible types are: Numerical, Categorical or Binary
@@ -241,43 +261,54 @@ def load_wisconsin():
     return df
 
 
-def load_ce_pairs(a_type=None, b_type=None, sup=True):
-    """
-        Load cause effect pairs from the causality benchmark data repository.
-        
-        Parameters
-        ----------
-        a_type: list, default=None
-            List containing the types that you want to load. Possible types are: 'Numerical',
-            'Categorical' and 'Binary'. If None, load all.
-            
-        b_type: list, default=None
-            List containing the types that you want to load. Possible types are: 'Numerical',
-            'Categorical' and 'Binary'. If None, load all.
-            
-        sup: bool, default=True
-            If True loads the support dataset along with the main one. There is no apparent
-            major difference in structure between the datasets.
-        
-        Returns
-        -------
-        dfs: list of CEPairs objects.
-            See the doc string for the CEPairs class for further information.
-    """
+def load_ce_pairs_info(name, target=True):
+    publicinfo_path = DATA_PATH + f"ce_pairs/{name}/{name}_publicinfo.csv"
+    df_info = pd.read_csv(publicinfo_path, usecols=['SampleID', 'A type', 'B type'])
+    df_info.columns = ['sample_id', 'a_type', 'b_type']
     
-    df_info = load_ce_pairs_info(sup)
+    if target:
+        target_path = DATA_PATH + f"ce_pairs/{name}/{name}_target.csv"
+        if os.path.exists(target_path):
+            df_target = pd.read_csv(target_path)
+            df_target.columns = ['sample_id', 'target', 'details']
+            df_info = df_info.merge(df_target, on='sample_id')
+        else:
+            raise FileNotFoundError("Target csv file does not exist!")
     
-    if type(a_type) is list:
-        a_type = [type_name.title() for type_name in a_type]
-        df_info = df_info[df_info['a_type'].isin(a_type)]
+    df_info['sample_id'] = name + "/" + df_info['sample_id']
+    return df_info
+
+
+def load_ce_pair_csv(name, df_info, target=True):
+    file_path = DATA_PATH + f"ce_pairs/{name}/{name}_pairs.csv"
     
-    if type(b_type) is list:
-        b_type = [type_name.title() for type_name in b_type]
-        df_info = df_info[df_info['b_type'].isin(b_type)]
+    df = pd.read_csv(file_path)
+    df.rename(columns={'SampleID':'sample_id', 'A':'a', 'B':'b'}, inplace=True)
+    df['sample_id'] = name + "/" + df['sample_id']
+    df = df.merge(df_info, on='sample_id')
     
     ce_pairs_list = []
+
+    for _, row in df.iterrows():
+        df_sample = _format_ce_pair_from_csv(row)
+        ce_pair = CEPairs(
+            row['sample_id'],
+            row['a_type'],
+            row['b_type'],
+            row['target'],
+            row['details'],
+            df_sample
+        )
+        
+        ce_pairs_list.append(ce_pair)
+        
+    return ce_pairs_list
+
+
+def load_ce_pair_split(df_info, target=True):
+    ce_pairs_list = []
     for _, row in df_info.iterrows():
-        file_path = DATA_PATH + row['sample_id'] + ".txt"
+        file_path = DATA_PATH + f"ce_pairs/{row['sample_id']}.txt"
         
         df_sample = pd.read_csv(file_path, sep="\t", header=None)
         df_sample.columns = ['a', 'b']
@@ -296,26 +327,67 @@ def load_ce_pairs(a_type=None, b_type=None, sup=True):
     return ce_pairs_list
 
 
-def load_ce_pairs_info(sup=True):
-    ce_paths = ['ce_pairs_train/']
-    if sup == True:
-        ce_paths.append("ce_pairs_sup/")
+def load_ce_pair(name, a_type=None, b_type=None):
+    df_info = load_ce_pairs_info(name)
+    
+    if type(a_type) is list:
+        a_type = [type_name.title() for type_name in a_type]
+        df_info = df_info[df_info['a_type'].isin(a_type)]
+    
+    if type(b_type) is list:
+        b_type = [type_name.title() for type_name in b_type]
+        df_info = df_info[df_info['b_type'].isin(b_type)]
+        
+    if _get_data_format(name) == 'split':
+        ce_pair = load_ce_pair_split(df_info)
+    elif _get_data_format(name) == 'csv':
+        ce_pair = load_ce_pair_csv(name, df_info)
+        
+    return ce_pair
 
-    df_info_list = []
-    for ce_path in ce_paths:
-        df_types = pd.read_csv(DATA_PATH + ce_path + "CEdata_train_publicinfo.csv")
-        df_types.columns = ['sample_id', 'a_type', 'b_type']
 
-        df_target = pd.read_csv(DATA_PATH + ce_path + "CEdata_train_target.csv")
-        df_target.columns = ['sample_id', 'target', 'details']
+def load_ce_pairs(databases=None, a_type=None, b_type=None, use_cache=True):
+    if databases is None:
+        databases = ['CEfinal_train', 'SUP1data', 'SUP2data', 'SUP3data', 'CEnew_valid']
+    elif type(databases) is not list:
+        raise TypeError("databases argument must be a list")
+    
+    if use_cache:
+        cache_path = DATA_PATH + "/ce_pairs/cache/ce_pairs.pkl"
+        if os.path.isfile(cache_path):
+            with open(cache_path, "rb") as f:
+                ce_pairs_list = pickle.load(f)
+            
+            # TODO: filter ce_pairs_list by a_type and b_type
+            return ce_pairs_list
+        else:
+            print("Could not find cache file. Loading data from raw...")
+        
+    ce_pairs_list = []
+    
+    for database in databases:
+        ce_pairs_database = load_ce_pair(database, a_type, b_type)
+        ce_pairs_list.extend(ce_pairs_database)
+        
+    return ce_pairs_list
 
-        df_info = df_types.merge(df_target)
-        df_info_list.append(df_info)
-        df_info['sample_id'] = ce_path + df_info['sample_id']
 
-    df_info = pd.concat(df_info_list)
-    return df_info
+def _get_data_format(name):
+    folder_path = DATA_PATH + "ce_pairs/" + f"{name}/"
+    files = glob(folder_path + "*")
+    if len([filename for filename in files if ".txt" in filename]) > 1:
+        return 'split'
+    else:
+        return 'csv'
 
+
+def _format_ce_pair_from_csv(row):
+    a = list(map(eval, row['a'].strip().split(" ")))
+    b = list(map(eval, row['b'].strip().split(" ")))
+    data = pd.DataFrame([a, b])
+    data = data.T
+    data.columns = ['a', 'b']
+    return data
 
 
 def _remove_dot(s):
