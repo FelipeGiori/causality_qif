@@ -346,7 +346,7 @@ def load_ce_pair(name, a_type=None, b_type=None):
     return ce_pair
 
 
-def load_ce_pairs(databases=None, a_type=None, b_type=None, use_cache=True):
+def load_ce_pairs(databases=None, a_type=None, b_type=None, use_cache=True, save_cache=False):
     if databases is None:
         databases = ['CEfinal_train', 'SUP1data', 'SUP2data', 'SUP3data', 'CEnew_valid']
     elif type(databases) is not list:
@@ -368,6 +368,11 @@ def load_ce_pairs(databases=None, a_type=None, b_type=None, use_cache=True):
     for database in databases:
         ce_pairs_database = load_ce_pair(database, a_type, b_type)
         ce_pairs_list.extend(ce_pairs_database)
+    
+    if save_cache:
+        cache_path = DATA_PATH + "/ce_pairs/cache/ce_pairs.pkl"
+        with open(cache_path, "wb") as f:
+            pickle.dump(ce_pairs_list, f)
         
     return ce_pairs_list
 
